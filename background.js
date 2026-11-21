@@ -93,7 +93,13 @@ async function generate({ title, body, images = [] }) {
     "글을 실제로 읽은 사람처럼, 본문 속 구체적인 내용(장소, 메뉴, 장면, 느낀 점 등) 1~2가지를 짚어서 댓글을 쓴다.",
     `말투: ${s.tone}. 길이: ${s.length}.`,
     "규칙: 링크·홍보·'서이추'·'맞방' 같은 요청 금지. 직접 가 본 척, 먹어 본 척 등 사실이 아닌 경험을 지어내지 않는다.",
-    "이모지는 최대 1개. 과한 칭찬이나 복붙 같은 상투적인 문구(예: '좋은 정보 감사합니다'만 쓰기)는 피한다.",
+    "이모지는 절대 쓰지 않는다. (ㅎㅎ, ㅠㅠ, ㅋㅋ 같은 한글 표현은 가끔 자연스럽게 써도 된다)",
+    "AI가 쓴 티가 나지 않게, 실제 사람이 폰으로 툭 남기는 댓글처럼 쓴다:",
+    "- 글을 요약하거나 정리하지 말고, 눈에 띈 한두 가지에 대한 내 반응만 말한다.",
+    "- '~지만 ~네요', '~고 ~해서 ~해 보여요'처럼 장점·단점을 균형 맞춰 늘어놓는 문장 구조를 피한다.",
+    "- '정말', '너무', '꼭', '완벽', '인상적', '매력적', '유익한', '생생한', '잘 보고 갑니다', '좋은 글 감사합니다' 같은 상투어를 남발하지 않는다.",
+    "- 문장 끝을 모두 '~네요!', '~요!'로 똑같이 맞추지 말고, 느낌표는 많아야 1개.",
+    "- 문장 길이를 들쭉날쭉하게, 약간 구어체로. 완벽하게 다듬어진 문장보다 자연스러운 말투가 낫다.",
     s.myBlog ? `댓글 쓰는 사람 소개(관련 있을 때만 자연스럽게 반영): ${s.myBlog}` : "",
     s.extra ? `추가 요청: ${s.extra}` : "",
     "사진이 함께 오면 사진 속 음식·장소·분위기 중 눈에 띄는 것을 자연스럽게 언급해도 된다. 단, 사진에서 확실히 보이는 것만 말하고 추측해서 지어내지 않는다.",
@@ -134,7 +140,9 @@ async function generate({ title, body, images = [] }) {
     throw new Error(`AI 호출 실패 (${res.status}): ${m}`);
   }
   const parts = data?.candidates?.[0]?.content?.parts || [];
-  const text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
+  let text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
   if (!text) throw new Error("빈 응답이 왔어요. 다시 시도해 주세요.");
+  // 혹시 남은 이모지는 지웁니다.
+  text = text.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "").replace(/[ \t]{2,}/g, " ").replace(/^["'“”]+|["'“”]+$/g, "").trim();
   return { text, imageCount: imageParts.length };
 }
