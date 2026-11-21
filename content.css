@@ -1,0 +1,31 @@
+.bws-fab {
+  position: fixed; right: 20px; bottom: 20px; z-index: 2147483646;
+  padding: 10px 16px; border: none; border-radius: 999px;
+  background: #03c75a; color: #fff; font-size: 14px; font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0,0,0,.2); cursor: pointer;
+}
+.bws-fab:hover { background: #02b351; }
+.bws-panel {
+  position: fixed; right: 20px; bottom: 70px; z-index: 2147483647;
+  width: 340px; max-width: calc(100vw - 40px);
+  background: #fff; color: #222; border: 1px solid #ddd; border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0,0,0,.18); padding: 12px;
+  font: 13px/1.5 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+}
+.bws-panel[hidden] { display: none; }
+.bws-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.bws-x { border: none; background: none; font-size: 16px; cursor: pointer; color: #888; }
+.bws-text {
+  width: 100%; box-sizing: border-box; min-height: 110px; resize: vertical;
+  border: 1px solid #ccc; border-radius: 8px; padding: 8px; font: inherit;
+}
+.bws-status { min-height: 18px; margin: 6px 0; color: #03a14a; }
+.bws-status.bws-err { color: #d93025; }
+.bws-btns { display: flex; gap: 6px; }
+.bws-btns button {
+  flex: 1; padding: 8px 0; border: 1px solid #ccc; border-radius: 8px;
+  background: #f7f7f7; cursor: pointer; font: inherit;
+}
+.bws-btns .bws-primary { background: #03c75a; border-color: #03c75a; color: #fff; font-weight: 700; }
+.bws-note { margin-top: 8px; color: #777; font-size: 12px; }
+.bws-count { color: #03a14a; font-weight: 700; margin-left: 4px; }

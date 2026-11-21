@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>댓글 도우미 설정</title>
+<style>
+  body { font: 14px/1.6 -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; max-width: 560px; margin: 32px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  label { display: block; margin-top: 16px; font-weight: 700; }
+  input, select, textarea { width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px; border: 1px solid #ccc; border-radius: 8px; font: inherit; }
+  textarea { min-height: 70px; }
+  .hint { color: #777; font-size: 12px; font-weight: 400; }
+  button { margin-top: 20px; padding: 10px 20px; border: none; border-radius: 8px; background: #03c75a; color: #fff; font-weight: 700; cursor: pointer; }
+  #saved { margin-left: 10px; color: #03a14a; }
+</style>
+</head>
+<body>
+  <h1>💬 블로그 댓글 도우미 설정</h1>
+
+  <div id="stats" style="background:#f2fbf6;border:1px solid #cdeedb;border-radius:10px;padding:12px 14px;">
+    <div style="font-size:15px;"><b>오늘 단 댓글: <span id="today">0</span>개</b></div>
+    <div id="week" style="margin-top:6px;color:#555;font-size:13px;"></div>
+  </div>
+
+  <label>Gemini API 키
+    <span class="hint">aistudio.google.com 에서 무료 발급. 이 컴퓨터의 크롬에만 저장돼요.</span>
+    <input id="apiKey" type="password" placeholder="AIza...">
+  </label>
+
+  <label>AI 모델 코드
+    <span class="hint">기본값 그대로 두면 돼요. 모델이 바뀌면 여기만 고치면 됩니다.</span>
+    <input id="model" type="text" value="gemini-3.1-flash-lite">
+  </label>
+
+  <label>말투
+    <select id="tone">
+      <option>친근한 존댓말</option>
+      <option>정중한 존댓말</option>
+      <option>밝고 발랄한 말투</option>
+      <option>차분한 말투</option>
+    </select>
+  </label>
+
+  <label>길이
+    <select id="length">
+      <option>1~2문장</option>
+      <option selected>2~3문장</option>
+      <option>3~4문장</option>
+    </select>
+  </label>
+
+  <label>사진 보기
+    <span class="hint">켜면 글 속 사진도 AI가 보고 댓글에 반영해요.</span>
+    <select id="useImages">
+      <option value="off" selected>끄기 (기본)</option>
+      <option value="on">켜기</option>
+    </select>
+  </label>
+
+  <label>볼 사진 수 <span class="hint">많을수록 정확하지만 조금 느려져요.</span>
+    <select id="imageCount">
+      <option value="2">2장</option>
+      <option value="4" selected>4장</option>
+      <option value="6">6장</option>
+    </select>
+  </label>
+
+  <label>내 블로그 소개 <span class="hint">(선택) 예: 맛집·여행 블로그를 운영하는 비와써니</span>
+    <textarea id="myBlog"></textarea>
+  </label>
+
+  <label>추가 요청 <span class="hint">(선택) 예: 마지막에 질문 하나 넣어줘</span>
+    <textarea id="extra"></textarea>
+  </label>
+
+  <button id="save">저장</button><span id="saved"></span>
+
+  <script src="options.js"></script>
+</body>
+</html>
