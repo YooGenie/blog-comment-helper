@@ -8,6 +8,7 @@ const DEFAULTS = {
   length: "2~3문장",
   myBlog: "",
   extra: "",
+  backupModel: "",
   useImages: false,
   imageCount: 4
 };
@@ -115,33 +116,54 @@ async function generate({ title, body, images = [] }) {
   const maxImgs = Math.max(0, Math.min(6, Number(s.imageCount) || 0));
   const imageParts = s.useImages && maxImgs ? await loadImages(images, maxImgs) : [];
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-goog-api-key": s.apiKey
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: system }] },
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: `제목: ${title || "(제목 없음)"}\n\n본문:\n${body}` },
-            ...(imageParts.length ? [{ text: `글에 들어 있는 사진 ${imageParts.length}장:` }, ...imageParts] : [])
-          ]
-        }
-      ],
-      generationConfig: { maxOutputTokens: 2048, temperature: 0.8 }
-    })
+  const reqBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: `제목: ${title || "(제목 없음)"}\n\n본문:\n${body}` },
+          ...(imageParts.length ? [{ text: `글에 들어 있는 사진 ${imageParts.length}장:` }, ...imageParts] : [])
+        ]
+      }
+    ],
+    generationConfig: { maxOutputTokens: 2048, temperature: 0.8 }
   });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const m = data?.error?.message || res.statusText;
-    if (res.status === 429) throw new Error("무료 사용 한도에 걸렸어요. 1분 정도 기다렸다가 다시 눌러 주세요.");
-    throw new Error(`AI 호출 실패 (${res.status}): ${m}`);
+  // 서버가 바쁠 때(500/503/504)는 잠깐 기다렸다가 자동으로 다시 시도합니다.
+  // 그래도 안 되면 설정의 "예비 모델"로 한 번 더 시도합니다.
+  const backup = (s.backupModel || "").trim();
+  const models = [model, ...(backup.startsWith("gemini") && backup !== model ? [backup] : [])];
+  const waits = [0, 1500, 4000]; // 모델마다 최대 3번
+  let res, data, lastStatus, lastMsg;
+  outer: for (const m of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
+    for (const w of waits) {
+      if (w) await new Promise((r) => setTimeout(r, w));
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": s.apiKey },
+          body: reqBody
+        });
+      } catch (e) {
+        lastStatus = 0;
+        lastMsg = "인터넷 연결을 확인해 주세요.";
+        continue;
+      }
+      data = await res.json().catch(() => ({}));
+      if (res.ok) break outer;
+      lastStatus = res.status;
+      lastMsg = data?.error?.message || res.statusText;
+      if (![500, 503, 504].includes(res.status)) break outer; // 재시도해도 안 되는 오류
+    }
+  }
+
+  if (!res?.ok) {
+    if (lastStatus === 429) throw new Error("무료 사용 한도에 걸렸어요. 1분 정도 기다렸다가 다시 눌러 주세요.");
+    if ([500, 503, 504].includes(lastStatus)) throw new Error("Google AI 서버가 지금 바빠요. 몇 번 다시 시도했는데 안 됐어요. 잠시 후 다시 눌러 주세요.");
+    if (lastStatus === 0) throw new Error(lastMsg);
+    throw new Error(`AI 호출 실패 (${lastStatus}): ${lastMsg}`);
   }
   const parts = data?.candidates?.[0]?.content?.parts || [];
   let text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
