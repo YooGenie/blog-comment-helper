@@ -48,6 +48,20 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     );
     return true; // 비동기 응답
   }
+  if (msg.type === "blogTitles") {
+    blogTitles(msg).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (err) => sendResponse({ ok: false, error: String(err.message || err) })
+    );
+    return true;
+  }
+  if (msg.type === "reviewSummary") {
+    reviewSummary(msg).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (err) => sendResponse({ ok: false, error: String(err.message || err) })
+    );
+    return true;
+  }
   if (msg.type === "placeInfo") {
     placeInfo(msg).then(
       (r) => sendResponse({ ok: true, ...r }),
@@ -167,6 +181,57 @@ async function placeInfo({ text = "", url = "" }) {
   const out = await callGemini(s, system, [{ text: `페이지 주소: ${url}\n\n페이지 텍스트:\n${text.slice(0, 15000)}` }], 0.2);
   if (!out) throw new Error("빈 응답이 왔어요. 다시 시도해 주세요.");
   return { text: stripEmoji(out).replace(/\*\*/g, "").replace(/[ \t]+$/gm, "").trim() };
+}
+
+// ---- 네이버 지도 방문자 리뷰 요약 ----
+async function reviewSummary({ text = "", url = "" }) {
+  const s = { ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) };
+  if (!s.apiKey) throw new Error("API 키가 없어요. 툴바의 확장 아이콘을 눌러 설정에서 넣어 주세요.");
+  const system = [
+    "너는 네이버 지도 장소 페이지의 방문자 리뷰를 블로그 글 참고용으로 요약한다.",
+    "반드시 페이지 텍스트에 있는 내용만 쓴다. 없는 내용은 지어내지 말고 그 줄을 뺀다.",
+    "리뷰 문장을 그대로 옮기지 말고 내 말로 짧게 요약한다. 다른 사람의 리뷰를 길게 인용하지 않는다.",
+    "아래 형식으로, 있는 항목만 쓴다:",
+    "리뷰 요약",
+    "- 리뷰 수: (방문자 리뷰·블로그 리뷰 수가 보이면)",
+    "- 좋았던 점: '이런 점이 좋았어요' 같은 키워드 통계가 있으면 많은 순서로 3~5개, 숫자가 있으면 숫자도 함께. 예: 음식이 맛있어요(512)",
+    "- 많이 언급된 메뉴: 리뷰에 자주 나오는 메뉴 이름",
+    "- 아쉬운 점: 리뷰에 반복해서 나오는 불만(대기, 좁음, 가격 등)이 있을 때만",
+    "- 한 줄 요약: 리뷰 전체 분위기를 한 문장으로",
+    "광고나 사장님 답글은 요약에 넣지 않는다.",
+    "이모지, 마크다운 굵게(**) 기호는 쓰지 않는다.",
+    "출력은 정리한 내용만. 설명이나 인사 없이."
+  ].join("\n");
+  const out = await callGemini(s, system, [{ text: `페이지 주소: ${url}\n\n페이지 텍스트:\n${text.slice(0, 15000)}` }], 0.2);
+  if (!out) throw new Error("빈 응답이 왔어요. 다시 시도해 주세요.");
+  return { text: stripEmoji(out).replace(/\*\*/g, "").replace(/[ \t]+$/gm, "").trim() };
+}
+
+// ---- 네이버 지도 블로그 리뷰 제목 뽑기 ----
+// 카드 텍스트에서 제목만 골라 냅니다. 카드에 실제로 있는 문장만 인정합니다(지어낸 제목 방지).
+async function blogTitles({ items = [] }) {
+  const s = { ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) };
+  if (!s.apiKey) throw new Error("API 키가 없어요. 툴바의 확장 아이콘을 눌러 설정에서 넣어 주세요.");
+  const list = items.slice(0, 30);
+  if (!list.length) return { titles: [] };
+  const system = [
+    "각 번호의 카드 텍스트는 네이버 지도의 블로그 리뷰 카드 하나다. 카드에는 작성자 닉네임, 글 제목, 본문 일부, 날짜가 섞여 있다.",
+    "각 카드에서 블로그 글 제목 한 줄만 골라, 카드에 적힌 그대로(글자 하나 바꾸지 말고) 옮긴다.",
+    "제목을 모르겠으면 그 번호는 '번호|' 처럼 비워 둔다.",
+    "출력 형식: 한 줄에 하나씩 '번호|제목'. 다른 말은 쓰지 않는다."
+  ].join("\n");
+  const user = list.map((it, i) => `${i + 1}) ${it.text.replace(/\s+/g, " ").slice(0, 400)}`).join("\n");
+  const out = await callGemini(s, system, [{ text: user }], 0);
+  const titles = list.map(() => "");
+  for (const line of out.split("\n")) {
+    const m = line.match(/^\s*(\d+)\s*\|\s*(.*)$/);
+    if (!m) continue;
+    const i = Number(m[1]) - 1;
+    const t = m[2].trim();
+    const norm = (x) => x.replace(/\s+/g, " ").trim();
+    if (list[i] && t && norm(list[i].text).includes(norm(t))) titles[i] = t;
+  }
+  return { titles };
 }
 
 // 댓글·답글 공통: 사람 말투 규칙

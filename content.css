@@ -40,3 +40,9 @@
   color: #555; font-size: 12px; max-height: 60px; overflow: auto; white-space: pre-wrap;
 }
 .bws-quote[hidden] { display: none; }
+.bws-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.bws-tabs button {
+  flex: 1; padding: 6px 0; border: 1px solid #ccc; border-radius: 8px;
+  background: #fff; cursor: pointer; font: inherit; font-size: 12px;
+}
+.bws-tabs button.bws-on { background: #03c75a; border-color: #03c75a; color: #fff; font-weight: 700; }
