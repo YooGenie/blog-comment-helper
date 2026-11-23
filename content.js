@@ -105,7 +105,7 @@
     panel.hidden = true;
     panel.innerHTML = `
       <div class="bws-head">
-        <strong>댓글 초안 <span class="bws-count">· 오늘 0개</span></strong>
+        <strong><span class="bws-title">댓글 초안</span> <span class="bws-count">· 오늘 0개</span></strong>
         <button class="bws-x" title="닫기">✕</button>
       </div>
       <textarea class="bws-text" placeholder="여기에 댓글 초안이 나와요. 고쳐 써도 돼요."></textarea>
@@ -115,6 +115,7 @@
         <button class="bws-copy">복사</button>
         <button class="bws-fill bws-primary">댓글칸에 넣기</button>
       </div>
+      <div class="bws-quote" hidden></div>
       <div class="bws-note">넣은 뒤 내용 확인하고 <b>등록은 직접</b> 눌러 주세요.</div>
     `;
     document.body.appendChild(panel);
@@ -136,8 +137,45 @@
       status.classList.toggle("bws-err", !!err);
     };
 
+    // mode: "comment"(남의 글에 댓글) | "reply"(내 글의 댓글에 답글)
+    let mode = "comment";
+    let target = null; // 답글 대상 { li, nick, text }
+    const titleEl = panel.querySelector(".bws-title");
+    const quoteEl = panel.querySelector(".bws-quote");
+    const fillBtn = panel.querySelector(".bws-fill");
+
+    function setMode(m, t) {
+      mode = m;
+      target = t || null;
+      ta.value = "";
+      setStatus("");
+      if (mode === "reply") {
+        titleEl.textContent = `답글 초안${target?.nick ? ` · ${target.nick}님` : ""}`;
+        countEl.hidden = true;
+        quoteEl.hidden = false;
+        quoteEl.textContent = target?.text || "";
+        fillBtn.textContent = "답글칸에 넣기";
+      } else {
+        titleEl.textContent = "댓글 초안";
+        countEl.hidden = false;
+        quoteEl.hidden = true;
+        fillBtn.textContent = "댓글칸에 넣기";
+      }
+    }
+
     async function run() {
       const post = getPost();
+      if (mode === "reply") {
+        if (!target?.text) return setStatus("댓글 내용을 찾지 못했어요.", true);
+        setStatus("댓글을 읽고 답글을 쓰는 중…");
+        ta.value = "";
+        const r = await chrome.runtime.sendMessage({
+          type: "generate", mode: "reply", title: post.title, body: post.body, comment: target.text, nick: target.nick
+        });
+        if (r?.ok) { ta.value = r.text; setStatus(""); }
+        else setStatus(r?.error || "알 수 없는 오류", true);
+        return;
+      }
       if (post.body.length < 20 && !post.images.length) {
         setStatus("본문을 찾지 못했어요. 페이지를 새로고침해 보세요.", true);
         return;
@@ -153,15 +191,24 @@
       }
     }
 
+    // 댓글마다 붙은 "답글 초안" 버튼이 부르는 함수
+    window.__bwsOpenReply = (t) => {
+      setMode("reply", t);
+      panel.hidden = false;
+      run();
+    };
+
     fab.addEventListener("click", () => {
+      if (mode !== "comment") setMode("comment");
       panel.hidden = false;
       if (!ta.value) run();
     });
     panel.querySelector(".bws-x").addEventListener("click", () => (panel.hidden = true));
     panel.querySelector(".bws-regen").addEventListener("click", run);
     panel.querySelector(".bws-copy").addEventListener("click", async () => {
-      if (!ta.value.trim()) return setStatus("복사할 댓글이 없어요.", true);
+      if (!ta.value.trim()) return setStatus("복사할 내용이 없어요.", true);
       await copy(ta.value);
+      if (mode === "reply") return setStatus("복사했어요. 답글칸에 붙여 넣으세요.");
       const r = await addCount();
       render(r.n);
       setStatus(r.added ? `복사했어요. 오늘 ${r.n}번째 댓글이에요!` : "복사했어요. (이 글은 오늘 이미 세었어요)");
@@ -169,12 +216,13 @@
     panel.querySelector(".bws-fill").addEventListener("click", async () => {
       const text = ta.value.trim();
       if (!text) return setStatus("넣을 댓글이 없어요.", true);
-      const ok = await fillComment(text);
+      const ok = mode === "reply" ? await fillReply(target?.li, text) : await fillComment(text);
+      const what = mode === "reply" ? "답글칸" : "댓글칸";
       if (ok) {
-        setStatus("댓글칸에 넣었어요. 확인 후 등록을 직접 눌러 주세요.");
+        setStatus(`${what}에 넣었어요. 확인 후 등록을 직접 눌러 주세요.`);
       } else {
         await copy(text);
-        setStatus("댓글칸을 못 찾았어요. 대신 복사했으니 붙여 넣어 주세요.", true);
+        setStatus(`${what}을 못 찾았어요. 대신 복사했으니 붙여 넣어 주세요.`, true);
       }
     });
   }
@@ -209,14 +257,11 @@
     return el;
   }
 
-  async function fillComment(text) {
-    const el = await findCommentInput();
-    if (!el) return false;
+  function setInputText(el, text) {
     el.scrollIntoView({ block: "center" });
     // 안내 문구(placeholder 라벨)가 있으면 클릭해서 입력 상태로 만듭니다.
     el.closest(".u_cbox_write_box")?.querySelector(".u_cbox_guide")?.click();
     el.focus();
-
     if (el.tagName === "TEXTAREA") {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
       setter.call(el, text);
@@ -230,6 +275,70 @@
         el.dispatchEvent(new InputEvent("input", { bubbles: true }));
       }
     }
+  }
+
+  async function fillComment(text) {
+    const el = await findCommentInput();
+    if (!el) return false;
+    setInputText(el, text);
     return true;
   }
+
+  // ---- 답글 ----
+  const REPLY_INPUT = [".u_cbox_reply_area .u_cbox_text[contenteditable='true']", ".u_cbox_reply_area textarea.u_cbox_text", ".u_cbox_reply_area textarea"];
+
+  async function fillReply(li, text) {
+    if (!li || !li.isConnected) return false;
+    let el = $(REPLY_INPUT, li);
+    if (!el) {
+      // 답글창을 여는 버튼만 누릅니다(등록과 무관).
+      li.querySelector(".u_cbox_btn_reply")?.click();
+      for (let i = 0; i < 10 && !el; i++) {
+        await wait(400);
+        el = $(REPLY_INPUT, li);
+      }
+    }
+    if (!el) return false;
+    setInputText(el, text);
+    return true;
+  }
+
+  // 내 블로그인지 확인 (설정의 "내 블로그 아이디"가 비어 있으면 모든 블로그에서 보여 줌)
+  const pageBlogId = () => {
+    const u = new URL(location.href);
+    return (u.searchParams.get("blogId") || u.pathname.split("/")[1] || "").toLowerCase();
+  };
+
+  function addReplyButtons() {
+    for (const li of document.querySelectorAll("li.u_cbox_comment")) {
+      if (li.dataset.bwsReply) continue;
+      if (li.closest(".u_cbox_reply_area")) continue; // 답글에는 붙이지 않음
+      const contents = li.querySelector(".u_cbox_contents");
+      if (!contents) continue;
+      li.dataset.bwsReply = "1";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "bws-reply-btn";
+      btn.textContent = "↩ 답글 초안";
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = (contents.innerText || contents.textContent || "").trim();
+        const nickEl = li.querySelector(".u_cbox_nick");
+        const nick = (nickEl?.innerText || nickEl?.textContent || "").trim();
+        window.__bwsOpenReply?.({ li, nick, text });
+      });
+      (li.querySelector(".u_cbox_tool") || contents.parentElement || li).appendChild(btn);
+    }
+  }
+
+  chrome.storage.local.get("myBlogId").then(({ myBlogId = "" }) => {
+    const mine = myBlogId.trim().toLowerCase();
+    if (mine && mine !== pageBlogId()) return;
+    const start = () => {
+      addReplyButtons();
+      new MutationObserver(() => addReplyButtons()).observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.body) start();
+  });
 })();
