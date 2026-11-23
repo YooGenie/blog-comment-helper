@@ -95,7 +95,7 @@
     const lines = [];
     items.forEach((it, i) => {
       const t = r.titles[i];
-      if (t) lines.push(`${lines.length + 1}) ${t}\n   ${it.url}`);
+      if (t) lines.push(`${lines.length + 1}) ${t}`);
     });
     if (!lines.length) return { ok: false, error: "제목을 뽑지 못했어요. 다시 눌러 주세요." };
     return { ok: true, text: `블로그 리뷰 제목\n${lines.join("\n")}` };
