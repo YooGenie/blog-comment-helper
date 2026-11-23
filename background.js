@@ -48,6 +48,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     );
     return true; // 비동기 응답
   }
+  if (msg.type === "placeInfo") {
+    placeInfo(msg).then(
+      (r) => sendResponse({ ok: true, ...r }),
+      (err) => sendResponse({ ok: false, error: String(err.message || err) })
+    );
+    return true;
+  }
   if (msg.type === "openOptions") {
     chrome.runtime.openOptionsPage();
   }
@@ -84,6 +91,82 @@ async function loadImages(urls, max) {
     }
   }
   return out;
+}
+
+// Gemini 호출 공통 함수: 서버가 바쁘면 자동 재시도, 예비 모델로 한 번 더 시도
+async function callGemini(s, system, parts, temperature = 0.8) {
+  let model = (s.model || DEFAULTS.model).trim();
+  if (!model.startsWith("gemini")) model = DEFAULTS.model;
+  const reqBody = JSON.stringify({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: [{ role: "user", parts }],
+    generationConfig: { maxOutputTokens: 2048, temperature }
+  });
+
+  const backup = (s.backupModel || "").trim();
+  const models = [model, ...(backup.startsWith("gemini") && backup !== model ? [backup] : [])];
+  const waits = [0, 1500, 4000]; // 모델마다 최대 3번
+  let res, data, lastStatus, lastMsg;
+  outer: for (const m of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
+    for (const w of waits) {
+      if (w) await new Promise((r) => setTimeout(r, w));
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-goog-api-key": s.apiKey },
+          body: reqBody
+        });
+      } catch (e) {
+        lastStatus = 0;
+        lastMsg = "인터넷 연결을 확인해 주세요.";
+        continue;
+      }
+      data = await res.json().catch(() => ({}));
+      if (res.ok) break outer;
+      lastStatus = res.status;
+      lastMsg = data?.error?.message || res.statusText;
+      if (![500, 503, 504].includes(res.status)) break outer; // 재시도해도 안 되는 오류
+    }
+  }
+
+  if (!res?.ok) {
+    if (lastStatus === 429) throw new Error("무료 사용 한도에 걸렸어요. 1분 정도 기다렸다가 다시 눌러 주세요.");
+    if ([500, 503, 504].includes(lastStatus)) throw new Error("Google AI 서버가 지금 바빠요. 몇 번 다시 시도했는데 안 됐어요. 잠시 후 다시 눌러 주세요.");
+    if (lastStatus === 0) throw new Error(lastMsg);
+    throw new Error(`AI 호출 실패 (${lastStatus}): ${lastMsg}`);
+  }
+  const out = data?.candidates?.[0]?.content?.parts || [];
+  return out.filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
+}
+
+const stripEmoji = (t) => t.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "");
+
+// ---- 네이버 지도 장소 정보 정리 ----
+async function placeInfo({ text = "", url = "" }) {
+  const s = { ...DEFAULTS, ...(await chrome.storage.local.get(Object.keys(DEFAULTS))) };
+  if (!s.apiKey) throw new Error("API 키가 없어요. 툴바의 확장 아이콘을 눌러 설정에서 넣어 주세요.");
+  const system = [
+    "너는 네이버 지도 장소 페이지의 텍스트에서 블로그 글에 넣을 가게 정보를 정리한다.",
+    "반드시 페이지 텍스트에 있는 정보만 쓴다. 없는 정보는 추측하지 말고 그 줄을 아예 빼라.",
+    "아래 형식으로, 순서대로, 있는 항목만 쓴다:",
+    "가게 이름",
+    "- 주소: (도로명 주소)",
+    "- 영업시간: 요일별로 정리. 매일 같으면 '매일 11:00 ~ 21:00'처럼 한 줄로. 요일마다 다르면 '월~금 11:00 ~ 21:00 / 토·일 10:00 ~ 20:00'처럼 묶는다.",
+    "- 브레이크타임: (있을 때만)",
+    "- 라스트오더: (있을 때만)",
+    "- 휴무: (정기 휴무일이 있을 때만)",
+    "- 주차: 가능/불가, 주차장 위치, 무료 시간이나 요금, 발렛 등 페이지에 있는 내용을 한 줄로.",
+    "- 전화: (있을 때만)",
+    "- 예약: (예약 가능 여부가 있을 때만)",
+    "'오늘 휴무', '영업 중', '곧 영업 종료' 같은 지금 상태 문구는 쓰지 않는다.",
+    "리뷰, 메뉴, 가격, 광고 문구는 넣지 않는다.",
+    "이모지, 마크다운 굵게(**) 기호는 쓰지 않는다.",
+    "출력은 정리한 내용만. 설명이나 인사 없이."
+  ].join("\n");
+  const out = await callGemini(s, system, [{ text: `페이지 주소: ${url}\n\n페이지 텍스트:\n${text.slice(0, 15000)}` }], 0.2);
+  if (!out) throw new Error("빈 응답이 왔어요. 다시 시도해 주세요.");
+  return { text: stripEmoji(out).replace(/\*\*/g, "").replace(/[ \t]+$/gm, "").trim() };
 }
 
 // 댓글·답글 공통: 사람 말투 규칙
@@ -141,62 +224,13 @@ async function generate({ mode = "comment", title, body, images = [], comment = 
     : `제목: ${title || "(제목 없음)"}\n\n본문:\n${body}`;
   if (isReply) images = [];
 
-  let model = (s.model || DEFAULTS.model).trim();
-  if (!model.startsWith("gemini")) model = DEFAULTS.model;
   const maxImgs = Math.max(0, Math.min(6, Number(s.imageCount) || 0));
   const imageParts = s.useImages && maxImgs ? await loadImages(images, maxImgs) : [];
-
-  const reqBody = JSON.stringify({
-    systemInstruction: { parts: [{ text: system }] },
-    contents: [
-      {
-        role: "user",
-        parts: [
-          { text: userText },
-          ...(imageParts.length ? [{ text: `글에 들어 있는 사진 ${imageParts.length}장:` }, ...imageParts] : [])
-        ]
-      }
-    ],
-    generationConfig: { maxOutputTokens: 2048, temperature: 0.8 }
-  });
-
-  // 서버가 바쁠 때(500/503/504)는 잠깐 기다렸다가 자동으로 다시 시도합니다.
-  // 그래도 안 되면 설정의 "예비 모델"로 한 번 더 시도합니다.
-  const backup = (s.backupModel || "").trim();
-  const models = [model, ...(backup.startsWith("gemini") && backup !== model ? [backup] : [])];
-  const waits = [0, 1500, 4000]; // 모델마다 최대 3번
-  let res, data, lastStatus, lastMsg;
-  outer: for (const m of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
-    for (const w of waits) {
-      if (w) await new Promise((r) => setTimeout(r, w));
-      try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": s.apiKey },
-          body: reqBody
-        });
-      } catch (e) {
-        lastStatus = 0;
-        lastMsg = "인터넷 연결을 확인해 주세요.";
-        continue;
-      }
-      data = await res.json().catch(() => ({}));
-      if (res.ok) break outer;
-      lastStatus = res.status;
-      lastMsg = data?.error?.message || res.statusText;
-      if (![500, 503, 504].includes(res.status)) break outer; // 재시도해도 안 되는 오류
-    }
-  }
-
-  if (!res?.ok) {
-    if (lastStatus === 429) throw new Error("무료 사용 한도에 걸렸어요. 1분 정도 기다렸다가 다시 눌러 주세요.");
-    if ([500, 503, 504].includes(lastStatus)) throw new Error("Google AI 서버가 지금 바빠요. 몇 번 다시 시도했는데 안 됐어요. 잠시 후 다시 눌러 주세요.");
-    if (lastStatus === 0) throw new Error(lastMsg);
-    throw new Error(`AI 호출 실패 (${lastStatus}): ${lastMsg}`);
-  }
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  let text = parts.filter((p) => p.text && !p.thought).map((p) => p.text).join("").trim();
+  const parts = [
+    { text: userText },
+    ...(imageParts.length ? [{ text: `글에 들어 있는 사진 ${imageParts.length}장:` }, ...imageParts] : [])
+  ];
+  let text = await callGemini(s, system, parts, 0.8);
   if (!text) throw new Error("빈 응답이 왔어요. 다시 시도해 주세요.");
   // 혹시 남은 이모지는 지웁니다.
   text = text.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "").replace(/[ \t]{2,}/g, " ").replace(/^["'“”]+|["'“”]+$/g, "").trim();
