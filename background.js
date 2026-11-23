@@ -8,7 +8,6 @@ const DEFAULTS = {
   length: "2~3문장",
   myBlog: "",
   extra: "",
-  backupModel: "",
   myBlogId: "",
   useImages: false,
   imageCount: 4
@@ -107,7 +106,7 @@ async function loadImages(urls, max) {
   return out;
 }
 
-// Gemini 호출 공통 함수: 서버가 바쁘면 자동 재시도, 예비 모델로 한 번 더 시도
+// Gemini 호출 공통 함수: 한 번만 호출하고, 실패하면 오류를 알려 줍니다
 async function callGemini(s, system, parts, temperature = 0.8) {
   let model = (s.model || DEFAULTS.model).trim();
   if (!model.startsWith("gemini")) model = DEFAULTS.model;
@@ -117,36 +116,26 @@ async function callGemini(s, system, parts, temperature = 0.8) {
     generationConfig: { maxOutputTokens: 2048, temperature }
   });
 
-  const backup = (s.backupModel || "").trim();
-  const models = [model, ...(backup.startsWith("gemini") && backup !== model ? [backup] : [])];
-  const waits = [0, 1500, 4000]; // 모델마다 최대 3번
+  // 한 번만 시도합니다. 실패하면 바로 안내합니다(자동 재시도 없음).
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   let res, data, lastStatus, lastMsg;
-  outer: for (const m of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`;
-    for (const w of waits) {
-      if (w) await new Promise((r) => setTimeout(r, w));
-      try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-goog-api-key": s.apiKey },
-          body: reqBody
-        });
-      } catch (e) {
-        lastStatus = 0;
-        lastMsg = "인터넷 연결을 확인해 주세요.";
-        continue;
-      }
-      data = await res.json().catch(() => ({}));
-      if (res.ok) break outer;
-      lastStatus = res.status;
-      lastMsg = data?.error?.message || res.statusText;
-      if (![500, 503, 504].includes(res.status)) break outer; // 재시도해도 안 되는 오류
-    }
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": s.apiKey },
+      body: reqBody
+    });
+    data = await res.json().catch(() => ({}));
+    lastStatus = res.status;
+    lastMsg = data?.error?.message || res.statusText;
+  } catch (e) {
+    lastStatus = 0;
+    lastMsg = "인터넷 연결을 확인해 주세요.";
   }
 
   if (!res?.ok) {
     if (lastStatus === 429) throw new Error("무료 사용 한도에 걸렸어요. 1분 정도 기다렸다가 다시 눌러 주세요.");
-    if ([500, 503, 504].includes(lastStatus)) throw new Error("Google AI 서버가 지금 바빠요. 몇 번 다시 시도했는데 안 됐어요. 잠시 후 다시 눌러 주세요.");
+    if ([500, 503, 504].includes(lastStatus)) throw new Error("Google AI 서버가 지금 바빠요. 잠시 후 다시 눌러 주세요.");
     if (lastStatus === 0) throw new Error(lastMsg);
     throw new Error(`AI 호출 실패 (${lastStatus}): ${lastMsg}`);
   }

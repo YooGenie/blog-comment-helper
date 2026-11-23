@@ -1,4 +1,4 @@
-const FIELDS = ["apiKey", "model", "tone", "length", "myBlog", "extra", "useImages", "imageCount", "backupModel", "myBlogId"];
+const FIELDS = ["apiKey", "model", "tone", "length", "myBlog", "extra", "useImages", "imageCount", "myBlogId"];
 
 chrome.storage.local.get(FIELDS).then((s) => {
   for (const f of FIELDS) {

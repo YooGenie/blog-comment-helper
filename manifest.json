@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "블로그 댓글 도우미",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "description": "네이버 블로그 글을 읽고 AI가 댓글·답글 초안을 써 주고, 네이버 지도 가게 정보를 정리해 줍니다. 등록은 직접 누르세요.",
   "permissions": [
     "storage",
