@@ -1,5 +1,5 @@
 // 네이버 지도 장소 페이지(pcmap.place.naver.com, m.place.naver.com)에 버튼을 붙입니다.
-// [가게 정보] 영업시간·주차 등 정리  [리뷰 요약] 방문자 리뷰 요약  [블로그 제목] 블로그 리뷰 제목·링크 목록
+// [장소 정보] 영업시간·입장료·주차 등 정리  [리뷰 요약] 방문자 리뷰 요약  [블로그 제목] 블로그 리뷰 제목·링크 목록
 // 페이지의 탭을 눌러 화면을 바꾸는 것 말고는 아무것도 누르지 않습니다.
 (() => {
   if (window.__bwsPlaceHelper) return;
@@ -69,7 +69,7 @@
     await openTab(/^리뷰(\s*[\d,]+)?$/);
     await openTab(/^방문자\s*리뷰(\s*[\d,]+)?$/);
     const text = pageText();
-    if (!/리뷰/.test(text)) return { ok: false, error: "리뷰를 찾지 못했어요. 가게의 리뷰 탭을 열고 다시 눌러 주세요." };
+    if (!/리뷰/.test(text)) return { ok: false, error: "리뷰를 찾지 못했어요. 장소의 리뷰 탭을 열고 다시 눌러 주세요." };
     setStatus("리뷰를 요약하는 중…");
     return chrome.runtime.sendMessage({ type: "reviewSummary", text, url: location.href });
   }
@@ -102,7 +102,7 @@
   }
 
   const MODES = {
-    info: { label: "가게 정보", run: doInfo, note: "페이지에 있는 정보만 정리해요." },
+    info: { label: "장소 정보", run: doInfo, note: "페이지에 있는 정보만 정리해요." },
     reviews: { label: "리뷰 요약", run: doReviews, note: "리뷰 문장을 그대로 옮기지 않고 요약해요." },
     blogs: { label: "블로그 제목", run: doBlogs, note: "지금 화면에 보이는 블로그 리뷰만 가져와요. 더 보려면 목록을 내린 뒤 다시 눌러 주세요." }
   };
@@ -111,7 +111,7 @@
     if (document.querySelector(".bws-fab")) return;
     const fab = document.createElement("button");
     fab.className = "bws-fab";
-    fab.textContent = "📋 가게 정보 정리";
+    fab.textContent = "📋 장소 정보 정리";
     document.body.appendChild(fab);
 
     const panel = document.createElement("div");
@@ -119,11 +119,11 @@
     panel.hidden = true;
     panel.innerHTML = `
       <div class="bws-head">
-        <strong>가게 정보 정리</strong>
+        <strong>장소 정보 정리</strong>
         <button class="bws-x" title="닫기">✕</button>
       </div>
       <div class="bws-tabs">
-        <button data-mode="info">가게 정보</button>
+        <button data-mode="info">장소 정보</button>
         <button data-mode="reviews">리뷰 요약</button>
         <button data-mode="blogs">블로그 제목</button>
       </div>
